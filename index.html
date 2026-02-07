@@ -56,19 +56,27 @@ select, button{
   padding:2px 6px;
 }
 
-#rightTop{
-  flex:0 0 10%;
-  display:flex;
-  justify-content:flex-end;
-  align-items:center;
-}
-
 #rightTop img{
   height:48px;
 }
 
 #pendingTasksContainer{
   margin:4px 8px;
+}
+
+#pendingTasks{
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px;
+}
+
+.pending-item{
+  background:#ffe0e0;
+  border-left:4px solid #e74c3c;
+  padding:2px 4px;
+  border-radius:3px;
+  font-size:11px;
+  min-width:120px;
 }
 
 #dashboard{
@@ -102,8 +110,8 @@ canvas{
   <div id="centerTop">
     <h1>Products Journey Monitoring Dashboard</h1>
     <div id="controls">
-      <select id="yearFilter"><option value="">All Years</option></select>
-      <select id="cropFilter"><option value="">All Crops</option></select>
+      <select id="yearFilter"></select>
+      <select id="cropFilter"></select>
       <button id="clearBtn">Clear</button>
     </div>
   </div>
@@ -113,6 +121,7 @@ canvas{
 </div>
 
 <div id="pendingTasksContainer">
+  <div><b>Upcoming (7 Days) Pending Task:</b></div>
   <div id="pendingTasks"></div>
 </div>
 
@@ -122,172 +131,180 @@ canvas{
 </div>
 
 <script>
-const CSV_URL = "https://docs.google.com/spreadsheets/d/1B6Eca5B6RZgGzZqLQYX0MfaxTg3WyjWmnogahhA6iFw/gviz/tq?tqx=out:csv";
+const CSV_URL =
+"https://docs.google.com/spreadsheets/d/1B6Eca5B6RZgGzZqLQYX0MfaxTg3WyjWmnogahhA6iFw/gviz/tq?tqx=out:csv";
+
 let rawData = [];
 
+const yearFilter = document.getElementById("yearFilter");
+const cropFilter = document.getElementById("cropFilter");
+
 fetch(CSV_URL)
-.then(r => r.text())
-.then(csv => {
-  rawData = Papa.parse(csv, { header:true, skipEmptyLines:true }).data;
-  populateFilters(rawData);
-  autoPrefilter();
+.then(r=>r.text())
+.then(csv=>{
+  rawData = Papa.parse(csv,{header:true,skipEmptyLines:true}).data;
+  autoPrefilterAndRender();
 });
 
-const cropFilter = document.getElementById("cropFilter");
-const yearFilter = document.getElementById("yearFilter");
-const clearBtn   = document.getElementById("clearBtn");
-
-cropFilter.onchange = applyFilter;
-yearFilter.onchange = applyFilter;
-
-clearBtn.onclick = () => {
-  yearFilter.value = "";
-  cropFilter.value = "";
-  document.getElementById("leftColumn").innerHTML = "";
-  document.getElementById("rightColumn").innerHTML = "";
-  document.getElementById("pendingTasks").innerHTML = "";
+document.getElementById("clearBtn").onclick = ()=>{
+  yearFilter.innerHTML="";
+  cropFilter.innerHTML="";
+  document.getElementById("leftColumn").innerHTML="";
+  document.getElementById("rightColumn").innerHTML="";
+  document.getElementById("pendingTasks").innerHTML="";
 };
 
-function populateFilters(data){
-  yearFilter.innerHTML = '<option value="">All Years</option>';
-  [...new Set(
-    data.map(d => new Date(d.Task_Start).getFullYear()).filter(Boolean)
-  )].sort().forEach(y=>{
-    yearFilter.add(new Option(y,y));
-  });
-}
+yearFilter.onchange = applyFilter;
+cropFilter.onchange = applyFilter;
 
-function updateCropOptions(data){
-  cropFilter.innerHTML = '<option value="">All Crops</option>';
-  [...new Set(data.map(d=>d["Crops Covered"]).filter(Boolean))]
-    .sort().forEach(c=>{
-      cropFilter.add(new Option(c,c));
-    });
-}
+/* ---------- AUTO PREFILTER ---------- */
 
-/* -------- AUTO PREFILTER -------- */
-function autoPrefilter(){
-  const latestYear = Math.max(...rawData.map(
-    d => new Date(d.Task_Start).getFullYear()
+function autoPrefilterAndRender(){
+  const valid = rawData.filter(d=>d.Task_Start && d["Crops Covered"]);
+  if(!valid.length) return;
+
+  const latestYear = Math.max(...valid.map(
+    d=>new Date(d.Task_Start).getFullYear()
   ));
 
-  yearFilter.value = latestYear;
-  const yearRows = rawData.filter(
-    d => new Date(d.Task_Start).getFullYear() == latestYear
+  yearFilter.innerHTML=`<option value="${latestYear}">${latestYear}</option>`;
+
+  const yearRows = valid.filter(
+    d=>new Date(d.Task_Start).getFullYear()===latestYear
   );
 
-  updateCropOptions(yearRows);
-
-  const latestCropRow = yearRows.sort(
-    (a,b)=> new Date(b.Task_Start)-new Date(a.Task_Start)
+  const latestRow = yearRows.sort(
+    (a,b)=>new Date(b.Task_Start)-new Date(a.Task_Start)
   )[0];
 
-  cropFilter.value = latestCropRow["Crops Covered"];
+  cropFilter.innerHTML=
+    `<option value="${latestRow["Crops Covered"]}">
+      ${latestRow["Crops Covered"]}
+     </option>`;
 
-  applyFilter();
+  renderDashboard(
+    yearRows.filter(d=>d["Crops Covered"]===latestRow["Crops Covered"])
+  );
 }
+
+/* ---------- FILTER APPLY ---------- */
 
 function applyFilter(){
   if(!yearFilter.value || !cropFilter.value){
-    document.getElementById("leftColumn").innerHTML = "";
-    document.getElementById("rightColumn").innerHTML = "";
-    document.getElementById("pendingTasks").innerHTML = "";
+    document.getElementById("leftColumn").innerHTML="";
+    document.getElementById("rightColumn").innerHTML="";
     return;
   }
 
-  let filtered = rawData.filter(d =>
-    new Date(d.Task_Start).getFullYear() == yearFilter.value &&
-    d["Crops Covered"] === cropFilter.value
+  const filtered = rawData.filter(d =>
+    new Date(d.Task_Start).getFullYear()==yearFilter.value &&
+    d["Crops Covered"]===cropFilter.value
   );
 
-  buildDashboard(filtered);
-  showPendingTasks(filtered);
+  renderDashboard(filtered);
 }
 
-function showPendingTasks(data){
-  const container = document.getElementById("pendingTasks");
-  container.innerHTML = "";
-  const today = new Date();
-  const next7 = new Date(today.getTime() + 7*86400000);
+/* ---------- DASHBOARD ---------- */
 
-  data.filter(d=>{
-    const e = new Date(d.Task_End);
-    return e>=today && e<=next7 && d.Status!=="Completed";
-  }).forEach(t=>{
-    const div=document.createElement("div");
-    div.textContent =
-      `${t.Sub_Task || t.Task} | Deadline: ${t.Task_End}`;
-    container.appendChild(div);
-  });
-}
-
-function buildDashboard(data){
-  const left = document.getElementById("leftColumn");
-  const right = document.getElementById("rightColumn");
-  left.innerHTML = "";
-  right.innerHTML = "";
+function renderDashboard(data){
+  const left=document.getElementById("leftColumn");
+  const right=document.getElementById("rightColumn");
+  left.innerHTML="";
+  right.innerHTML="";
+  showPendingTasks(data);
 
   const policy = data.filter(d=>d.Major_Task==="Policy Start to End");
   const normal = data.filter(d=>d.Major_Task!=="Policy Start to End");
 
   const grouped={};
   normal.forEach(r=>{
-    grouped[r.Major_Task] ??= [];
+    if(!r.Task_Start||!r.Task_End) return;
+    grouped[r.Major_Task]??=[];
     grouped[r.Major_Task].push(r);
   });
 
-  Object.entries(grouped).slice(0,3).forEach(([k,v],i)=>{
+  Object.entries(grouped).slice(0,3).forEach(([k,v])=>{
+    const box=document.createElement("div");
+    box.className="chart-box";
     const c=document.createElement("canvas");
     c.height=200;
-    left.appendChild(c);
+    box.appendChild(c);
+    left.appendChild(box);
     drawGantt(c,k,v,false);
   });
 
   if(policy.length){
+    const box=document.createElement("div");
+    box.className="chart-box";
     const c=document.createElement("canvas");
     c.height=600;
-    right.appendChild(c);
+    box.appendChild(c);
+    right.appendChild(box);
     drawGantt(c,"Policy Start to End",policy,true);
   }
 }
 
+/* ---------- PENDING ---------- */
+
+function showPendingTasks(data){
+  const el=document.getElementById("pendingTasks");
+  el.innerHTML="";
+  const today=new Date();
+  const next7=new Date(); next7.setDate(today.getDate()+7);
+
+  data.filter(d=>{
+    const e=new Date(d.Task_End);
+    return e>=today && e<=next7 && d.Status!=="Completed";
+  }).forEach(t=>{
+    const div=document.createElement("div");
+    div.className="pending-item";
+    div.textContent=
+      `${t.Sub_Task||t.Task} | ${t.Assigned_To||""} | ${t.Task_End}`;
+    el.appendChild(div);
+  });
+}
+
+/* ---------- GANTT ---------- */
+
 function drawGantt(canvas,title,rows,extendRight){
-  const labels = rows.map(r=>r.Task);
-  const data = rows.map(r=>{
+  const ranges = rows.map(r=>{
     const s=new Date(r.Task_Start).getTime();
     let e=new Date(r.Task_End).getTime();
     if(e<=s) e=s+86400000;
     return [s,e];
   });
 
-  let max=Math.max(...data.map(d=>d[1]));
+  let min=Math.min(...ranges.map(r=>r[0]));
+  let max=Math.max(...ranges.map(r=>r[1]));
   if(extendRight) max+=10*86400000;
 
   new Chart(canvas,{
     type:"bar",
-    data:{labels,datasets:[{
-      data,
-      backgroundColor:rows.map(r=>r.Status==="Done"?"#2ecc71":"#e74c3c")
-    }]},
+    data:{
+      labels:rows.map(r=>r.Task),
+      datasets:[{
+        data:ranges,
+        backgroundColor:rows.map(r=>r.Status==="Done"?"#2ecc71":"#e74c3c"),
+        borderRadius:3
+      }]
+    },
     options:{
       indexAxis:"y",
+      maintainAspectRatio:false,
       plugins:{
         legend:{display:false},
         title:{
           display:true,
           text:title,
           color:"blue",
-          font:{family:"Times New Roman",size:12}
+          font:{family:"Times New Roman",size:12,weight:"bold"}
         },
         datalabels:{
           anchor:"end",
           align:"right",
           color:"black",
           font:{family:"Times New Roman",size:11},
-          formatter:(v,ctx)=>{
-            const st = rows[ctx.dataIndex].Sub_Task;
-            return st ? st : "";
-          }
+          formatter:(v,ctx)=>rows[ctx.dataIndex].Sub_Task||""
         },
         tooltip:{
           callbacks:{
@@ -304,10 +321,7 @@ function drawGantt(canvas,title,rows,extendRight){
           }
         }
       },
-      scales:{
-        x:{type:"time",max},
-        y:{ticks:{font:{family:"Times New Roman",size:9}}}
-      }
+      scales:{ x:{type:"time",min,max} }
     },
     plugins:[ChartDataLabels]
   });
