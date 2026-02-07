@@ -140,88 +140,86 @@ canvas{
 <script>
 const CSV_URL = "https://docs.google.com/spreadsheets/d/1B6Eca5B6RZgGzZqLQYX0MfaxTg3WyjWmnogahhA6iFw/gviz/tq?tqx=out:csv";
 let rawData=[];
+let charts=[];
 const yearFilter=document.getElementById("yearFilter");
 const cropFilter=document.getElementById("cropFilter");
 const clearBtn=document.getElementById("clearBtn");
 const currentInfo=document.getElementById("currentInfo");
-let charts=[];
 
-cropFilter.addEventListener("change",applyFilter);
+fetch(CSV_URL).then(r=>r.text()).then(csv=>{
+  rawData=Papa.parse(csv,{header:true,skipEmptyLines:true}).data;
+  initFilters();
+});
+
 yearFilter.addEventListener("change",applyFilter);
+cropFilter.addEventListener("change",applyFilter);
 clearBtn.addEventListener("click",()=>{
   yearFilter.value=""; cropFilter.value="";
   currentInfo.textContent="Currently showing: -";
-  buildDashboard([]);
-  showPendingTasks([]);
-  populateFilters(rawData,true);
+  buildDashboard([]); showPendingTasks([]);
+  initFilters();
 });
 
-fetch(CSV_URL)
-.then(r=>r.text())
-.then(csv=>{
-  rawData=Papa.parse(csv,{header:true,skipEmptyLines:true}).data;
-  populateFilters(rawData,true);
-});
-
-function populateFilters(data,preselect=false){
+function initFilters(){
+  // populate all years
+  const years=[...new Set(rawData.map(d=>new Date(d.Task_Start).getFullYear()).filter(Boolean))].sort();
   yearFilter.innerHTML='<option value="">All Years</option>';
-  const years=[...new Set(data.map(d=>new Date(d.Task_Start).getFullYear()).filter(Boolean))].sort();
   years.forEach(y=>{const opt=document.createElement("option"); opt.value=y; opt.textContent=y; yearFilter.appendChild(opt);});
 
+  // prefilter: current year if exists, else last year in data
+  const currentYear=new Date().getFullYear();
+  const preYear=years.includes(currentYear)?currentYear:years[years.length-1];
+  yearFilter.value=preYear;
+
+  updateCropOptions(preYear,true);
+}
+
+function updateCropOptions(year,preselect=false){
+  let crops=rawData.filter(d=>new Date(d.Task_Start).getFullYear()==year)
+                   .map(d=>d["Crops Covered"]).filter(Boolean);
+  crops=[...new Set(crops)].sort();
   cropFilter.innerHTML='<option value="">All Crops</option>';
-  const crops=[...new Set(data.map(d=>d["Crops Covered"]).filter(Boolean))].sort();
   crops.forEach(c=>{const opt=document.createElement("option"); opt.value=c; opt.textContent=c; cropFilter.appendChild(opt);});
 
-  if(preselect){
-    const currentYear=new Date().getFullYear();
-    const yearExists=years.includes(currentYear)?currentYear:years[years.length-1];
-    yearFilter.value=yearExists;
-
-    const filteredCrops=data.filter(d=>new Date(d.Task_Start).getFullYear()==yearFilter.value)
-                            .map(d=>d["Crops Covered"]).filter(Boolean).sort();
-    cropFilter.value=filteredCrops[0]||"";
-    applyFilter();
-  }
+  if(preselect) cropFilter.value=crops[0]||"";
+  applyFilter();
 }
 
 function applyFilter(){
   let filtered=rawData;
-
   if(yearFilter.value){
     filtered=filtered.filter(d=>new Date(d.Task_Start).getFullYear()==yearFilter.value);
-    const filteredCrops=[...new Set(filtered.map(d=>d["Crops Covered"]).filter(Boolean))].sort();
+    // update crop filter dynamically
+    const crops=[...new Set(filtered.map(d=>d["Crops Covered"]).filter(Boolean))].sort();
+    const prevCrop=cropFilter.value;
     cropFilter.innerHTML='<option value="">All Crops</option>';
-    filteredCrops.forEach(c=>{const opt=document.createElement("option"); opt.value=c; opt.textContent=c; cropFilter.appendChild(opt);});
-    if(!filteredCrops.includes(cropFilter.value)) cropFilter.value=filteredCrops[0]||"";
+    crops.forEach(c=>{const opt=document.createElement("option"); opt.value=c; opt.textContent=c; cropFilter.appendChild(opt);});
+    if(prevCrop && crops.includes(prevCrop)) cropFilter.value=prevCrop;
+    else cropFilter.value=crops[0]||"";
   }
-
   if(cropFilter.value){
     filtered=filtered.filter(d=>d["Crops Covered"]===cropFilter.value);
   }
 
   currentInfo.textContent=`Currently showing: ${yearFilter.value||"-"}, ${cropFilter.value||"-"}`;
-
   buildDashboard(filtered);
   showPendingTasks(filtered);
 }
 
 function showPendingTasks(data){
-  const container=document.getElementById("pendingTasks");
-  container.innerHTML="";
+  const container=document.getElementById("pendingTasks"); container.innerHTML="";
   const today=new Date(), next7=new Date(); next7.setDate(today.getDate()+7);
   const upcoming=data.filter(d=>{const end=new Date(d.Task_End); return !isNaN(end)&&end>=today&&end<=next7&&d.Status!=="Completed";});
   if(!upcoming.length){ container.innerHTML="<div>No pending tasks in next 7 days.</div>"; return; }
   upcoming.forEach(task=>{
-    const div=document.createElement("div");
-    div.className="pending-item";
+    const div=document.createElement("div"); div.className="pending-item";
     div.textContent=`${task.Sub_Task||task.Task} | ${task.Client||""} | Deadline: ${task.Task_End} | ${task.Assigned_To||""}`;
     container.appendChild(div);
   });
 }
 
 function buildDashboard(data){
-  const leftColumn=document.getElementById("leftColumn");
-  const rightColumn=document.getElementById("rightColumn");
+  const leftColumn=document.getElementById("leftColumn"), rightColumn=document.getElementById("rightColumn");
   leftColumn.innerHTML=""; rightColumn.innerHTML="";
   if(charts.length){ charts.forEach(c=>c.destroy()); charts=[]; }
   if(!data.length) return;
@@ -234,13 +232,11 @@ function buildDashboard(data){
 
   const pastelColors=["#dcedc8","#fff9c4","#ffe0b2","#f0f4c3","#c8e6c9"];
   const majorTasks=Object.entries(grouped);
-
   let totalHeight=0;
+
   majorTasks.forEach(([major,rows],i)=>{
-    const box=document.createElement("div"); box.className="chart-box";
-    box.style.background=pastelColors[i%pastelColors.length];
-    const canvas=document.createElement("canvas"); canvas.id="left_"+i; 
-    canvas.style.height=(rows.length*50)+"px"; // standard spacing for visualization
+    const box=document.createElement("div"); box.className="chart-box"; box.style.background=pastelColors[i%pastelColors.length];
+    const canvas=document.createElement("canvas"); canvas.id="left_"+i; canvas.style.height=(rows.length*50)+"px";
     box.appendChild(canvas); leftColumn.appendChild(box);
     charts.push(drawGantt(canvas.id,major,rows,false));
     totalHeight+=rows.length*50;
@@ -248,8 +244,7 @@ function buildDashboard(data){
 
   if(policyRows.length){
     const box=document.createElement("div"); box.className="chart-box"; box.style.background="#b3e5fc";
-    const canvas=document.createElement("canvas"); canvas.id="policyChart"; 
-    canvas.style.height=totalHeight+"px";
+    const canvas=document.createElement("canvas"); canvas.id="policyChart"; canvas.style.height=totalHeight+"px";
     box.appendChild(canvas); rightColumn.appendChild(box);
     charts.push(drawGantt(canvas.id,"Policy Start to End",policyRows,true));
   }
@@ -259,8 +254,7 @@ function drawGantt(id,title,rows,extendRight){
   const labels=rows.map(r=>r.Task);
   const ranges=rows.map(r=>{ const s=new Date(r.Task_Start).getTime(); let e=new Date(r.Task_End).getTime(); if(e<=s) e=s+86400000; return [s,e];});
   const colors=rows.map(r=>r.Status==="Done"?"#2ecc71":"#e74c3c");
-  let minDate=Math.min(...ranges.map(r=>r[0]));
-  let maxDate=Math.max(...ranges.map(r=>r[1]));
+  let minDate=Math.min(...ranges.map(r=>r[0])), maxDate=Math.max(...ranges.map(r=>r[1]));
   if(extendRight) maxDate+=10*86400000;
 
   return new Chart(document.getElementById(id),{
@@ -298,18 +292,8 @@ function drawGantt(id,title,rows,extendRight){
         }
       },
       scales:{
-        x:{
-          type:"time",
-          min:minDate,
-          max:maxDate,
-          ticks:{font:{family:"Times New Roman",size:11}, color:"black", maxRotation:0},
-          grid:{color:"#eee"}
-        },
-        y:{
-          ticks:{font:{family:"Times New Roman",size:11}, color:"black"},
-          grid:{display:false},
-          stacked:true
-        }
+        x:{type:"time", min:minDate, max:maxDate, ticks:{font:{family:"Times New Roman",size:11}, color:"black", maxRotation:0}, grid:{color:"#eee"}},
+        y:{ticks:{font:{family:"Times New Roman",size:11}, color:"black"}, grid:{display:false}, stacked:true}
       }
     },
     plugins:[ChartDataLabels]
