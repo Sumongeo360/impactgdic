@@ -226,7 +226,7 @@ function showPendingTasks(data){
   if(!upcoming.length){ container.innerHTML="<div>No pending tasks in next 7 days.</div>"; return; }
   upcoming.forEach(task=>{
     const div=document.createElement("div"); div.className="pending-item";
-    div.textContent=`${task.Sub_Task && task.Sub_Task.trim()!=="" ? task.Sub_Task : task.Task}|${task.Client||""}|Deadline: ${task.Task_End}|${task.Assigned_To||""}`;
+    div.textContent=`${task.Sub_Task && task.Sub_Task.trim()!=="" ? task.Sub_Task : task.Task}|${task.Client||""}|Deadline: ${task.Deadline||task.Task_End||""}|${task.Assigned_To||""}`;
     container.appendChild(div);
   });
 }
@@ -249,7 +249,7 @@ function buildDashboard(data){
 
   majorTasks.forEach(([major,rows],i)=>{
     const box=document.createElement("div"); box.className="chart-box"; box.style.background=pastelColors[i%pastelColors.length];
-    const chartHeight=Math.max(rows.length*50,150); // minimum height 150px
+    const chartHeight=Math.max(rows.length*50,150); // minimum height
     const canvas=document.createElement("canvas"); canvas.id="left_"+i; canvas.style.height=chartHeight+"px";
     box.appendChild(canvas); leftColumn.appendChild(box);
     charts.push(drawGantt(canvas.id,major,rows,false));
@@ -281,7 +281,18 @@ function drawGantt(id,title,rows,extendRight){
         legend:{display:false},
         title:{display:true,text:title,font:{size:12,weight:"bold",family:"Times New Roman"},color:"black"},
         tooltip:{
-          callbacks:{label:ctx=>{const r=rows[ctx.dataIndex]||{}; return [`Task: ${r.Task||""}`,`Sub Task: ${r.Sub_Task||""}`,`Assigned: ${r.Assigned_To||""}`,`Start: ${r.Task_Start||""}`,`End: ${r.Task_End||""}`,`Task_Deadline: ${r.Deadline||""}`,`Status: ${r.Status||""}`];}}
+          callbacks:{label:ctx=>{
+            const r=rows[ctx.dataIndex]||{};
+            return [
+              `Task: ${r.Task||""}`,
+              `Sub Task: ${r.Sub_Task||""}`,
+              `Assigned: ${r.Assigned_To||""}`,
+              `Start: ${r.Task_Start||""}`,
+              `End: ${r.Task_End||""}`,
+              `Deadline: ${r.Task_Deadline||""}`,
+              `Status: ${r.Status||""}`
+            ];
+          }}
         },
         datalabels:{
           display:true,
@@ -304,4 +315,3 @@ function drawGantt(id,title,rows,extendRight){
 
 </body>
 </html>
-
