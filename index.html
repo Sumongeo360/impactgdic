@@ -17,6 +17,7 @@ html, body{
   height:100%;
   overflow-y:auto;
 }
+
 #topContainer{
   display:flex;
   justify-content:space-between;
@@ -26,6 +27,7 @@ html, body{
   min-height:70px;
   position:relative;
 }
+
 #centerTop{
   position:absolute;
   left:50%;
@@ -35,6 +37,7 @@ html, body{
   align-items:center;
   gap:4px;
 }
+
 #centerTop h1{
   font-size:18px;
   font-weight:bold;
@@ -42,43 +45,52 @@ html, body{
   margin:0;
   text-align:center;
 }
+
 #currentInfo{
   font-size:12px;
   color:black;
   margin-bottom:2px;
 }
+
 #controls{
   display:flex;
   gap:6px;
 }
+
 select, button{
   font-family:"Times New Roman", serif;
   font-size:11px;
   padding:2px 6px;
 }
+
 #rightTop{
   flex:0 0 10%;
   display:flex;
   justify-content:flex-end;
   align-items:center;
 }
+
 #rightTop img{
   height:48px;
   width:auto;
 }
+
 #pendingTasksContainer{
   margin:4px 8px;
 }
+
 #pendingTasksTitle{
   font-size:12px;
   font-weight:bold;
   margin-bottom:2px;
 }
+
 #pendingTasks{
   display:flex;
   flex-wrap:wrap;
   gap:4px;
 }
+
 .pending-item{
   background:#ffe0e0;
   border-left:4px solid #e74c3c;
@@ -88,22 +100,26 @@ select, button{
   flex:1 1 calc(25% - 4px);
   min-width:120px;
 }
+
 #dashboard{
   display:grid;
   grid-template-columns:1fr 1fr;
   gap:8px;
   padding:8px;
 }
+
 .column{
   display:flex;
   flex-direction:column;
   gap:8px;
 }
+
 .chart-box{
   border-radius:6px;
   padding:4px;
   background:#f0f4c3;
 }
+
 canvas{
   width:100% !important;
 }
@@ -141,6 +157,7 @@ canvas{
 const CSV_URL = "https://docs.google.com/spreadsheets/d/1B6Eca5B6RZgGzZqLQYX0MfaxTg3WyjWmnogahhA6iFw/gviz/tq?tqx=out:csv";
 let rawData=[];
 let charts=[];
+
 const yearFilter=document.getElementById("yearFilter");
 const cropFilter=document.getElementById("cropFilter");
 const clearBtn=document.getElementById("clearBtn");
@@ -156,17 +173,16 @@ cropFilter.addEventListener("change",applyFilter);
 clearBtn.addEventListener("click",()=>{
   yearFilter.value=""; cropFilter.value="";
   currentInfo.textContent="Currently showing: -";
-  buildDashboard([]); showPendingTasks([]);
+  buildDashboard([]);
+  showPendingTasks([]);
   initFilters();
 });
 
 function initFilters(){
-  // populate all years
   const years=[...new Set(rawData.map(d=>new Date(d.Task_Start).getFullYear()).filter(Boolean))].sort();
   yearFilter.innerHTML='<option value="">All Years</option>';
   years.forEach(y=>{const opt=document.createElement("option"); opt.value=y; opt.textContent=y; yearFilter.appendChild(opt);});
 
-  // prefilter: current year if exists, else last year in data
   const currentYear=new Date().getFullYear();
   const preYear=years.includes(currentYear)?currentYear:years[years.length-1];
   yearFilter.value=preYear;
@@ -180,7 +196,6 @@ function updateCropOptions(year,preselect=false){
   crops=[...new Set(crops)].sort();
   cropFilter.innerHTML='<option value="">All Crops</option>';
   crops.forEach(c=>{const opt=document.createElement("option"); opt.value=c; opt.textContent=c; cropFilter.appendChild(opt);});
-
   if(preselect) cropFilter.value=crops[0]||"";
   applyFilter();
 }
@@ -189,7 +204,6 @@ function applyFilter(){
   let filtered=rawData;
   if(yearFilter.value){
     filtered=filtered.filter(d=>new Date(d.Task_Start).getFullYear()==yearFilter.value);
-    // update crop filter dynamically
     const crops=[...new Set(filtered.map(d=>d["Crops Covered"]).filter(Boolean))].sort();
     const prevCrop=cropFilter.value;
     cropFilter.innerHTML='<option value="">All Crops</option>';
@@ -200,7 +214,6 @@ function applyFilter(){
   if(cropFilter.value){
     filtered=filtered.filter(d=>d["Crops Covered"]===cropFilter.value);
   }
-
   currentInfo.textContent=`Currently showing: ${yearFilter.value||"-"}, ${cropFilter.value||"-"}`;
   buildDashboard(filtered);
   showPendingTasks(filtered);
@@ -213,7 +226,7 @@ function showPendingTasks(data){
   if(!upcoming.length){ container.innerHTML="<div>No pending tasks in next 7 days.</div>"; return; }
   upcoming.forEach(task=>{
     const div=document.createElement("div"); div.className="pending-item";
-    div.textContent=`${task.Sub_Task||task.Task} | ${task.Client||""} | Deadline: ${task.Task_End} | ${task.Assigned_To||""}`;
+    div.textContent=`${task.Sub_Task && task.Sub_Task.trim()!=="" ? task.Sub_Task : task.Task}|${task.Client||""}|Deadline: ${task.Task_End}|${task.Assigned_To||""}`;
     container.appendChild(div);
   });
 }
@@ -236,10 +249,11 @@ function buildDashboard(data){
 
   majorTasks.forEach(([major,rows],i)=>{
     const box=document.createElement("div"); box.className="chart-box"; box.style.background=pastelColors[i%pastelColors.length];
-    const canvas=document.createElement("canvas"); canvas.id="left_"+i; canvas.style.height=(rows.length*50)+"px";
+    const chartHeight=Math.max(rows.length*50,150); // minimum height 150px
+    const canvas=document.createElement("canvas"); canvas.id="left_"+i; canvas.style.height=chartHeight+"px";
     box.appendChild(canvas); leftColumn.appendChild(box);
     charts.push(drawGantt(canvas.id,major,rows,false));
-    totalHeight+=rows.length*50;
+    totalHeight+=chartHeight;
   });
 
   if(policyRows.length){
@@ -259,41 +273,28 @@ function drawGantt(id,title,rows,extendRight){
 
   return new Chart(document.getElementById(id),{
     type:"bar",
-    data:{labels,datasets:[{data:ranges,backgroundColor:colors,borderRadius:3}]},
+    data:{labels,datasets:[{data:ranges,backgroundColor:colors,borderRadius:3,barPercentage:0.6}]},
     options:{
       indexAxis:"y",
       maintainAspectRatio:false,
       plugins:{
         legend:{display:false},
-        title:{display:true,text:title,color:"black",font:{size:12,weight:"bold",family:"Times New Roman"}},
+        title:{display:true,text:title,font:{size:12,weight:"bold",family:"Times New Roman"},color:"black"},
         tooltip:{
-          callbacks:{
-            label:ctx=>{
-              const r=rows[ctx.dataIndex]||{};
-              return [
-                `Task: ${r.Task||""}`,
-                `Sub-task: ${r.Sub_Task||""}`,
-                `Assigned: ${r.Assigned_To||""}`,
-                `Start: ${r.Task_Start||""}`,
-                `End: ${r.Task_End||""}`,
-                `Deadline: ${r.Deadline||""}`,
-                `Status: ${r.Status||""}`
-              ];
-            }
-          }
+          callbacks:{label:ctx=>{const r=rows[ctx.dataIndex]||{}; return [`Task: ${r.Task||""}`,`Sub Task: ${r.Sub_Task||""}`,`Assigned: ${r.Assigned_To||""}`,`Start: ${r.Task_Start||""}`,`End: ${r.Task_End||""}`,`Deadline: ${r.Deadline||""}`,`Status: ${r.Status||""}`];}}
         },
         datalabels:{
           display:true,
+          color:'blue',
+          font:{size:10,family:"Times New Roman"},
           anchor:'end',
           align:'end',
-          color:'blue',
-          font:{family:"Times New Roman",size:10},
-          formatter:ctx=>rows[ctx.dataIndex]?.Sub_Task||''
+          formatter:(v,ctx)=>rows[ctx.dataIndex]?.Sub_Task||''
         }
       },
       scales:{
-        x:{type:"time", min:minDate, max:maxDate, ticks:{font:{family:"Times New Roman",size:11}, color:"black", maxRotation:0}, grid:{color:"#eee"}},
-        y:{ticks:{font:{family:"Times New Roman",size:11}, color:"black"}, grid:{display:false}, stacked:true}
+        x:{type:"time",min:minDate,max:maxDate,time:{unit:"day",tooltipFormat:"yyyy-MM-dd"},ticks:{font:{size:10,family:"Times New Roman"},color:"black",maxRotation:0,autoSkip:true},grid:{color:"#eee"}},
+        y:{ticks:{font:{size:10,family:"Times New Roman"},color:"black"},grid:{display:false}}
       }
     },
     plugins:[ChartDataLabels]
