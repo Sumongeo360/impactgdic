@@ -17,7 +17,6 @@ html, body{
   height:100%;
   overflow-y:auto;
 }
-
 #topContainer{
   display:flex;
   justify-content:space-between;
@@ -27,7 +26,6 @@ html, body{
   min-height:70px;
   position:relative;
 }
-
 #centerTop{
   position:absolute;
   left:50%;
@@ -37,67 +35,75 @@ html, body{
   align-items:center;
   gap:4px;
 }
-
 #centerTop h1{
   font-size:18px;
   font-weight:bold;
   color:red;
   margin:0;
+  text-align:center;
 }
-
+#currentInfo{
+  font-size:12px;
+  color:black;
+  margin-bottom:2px;
+}
 #controls{
   display:flex;
   gap:6px;
 }
-
 select, button{
   font-family:"Times New Roman", serif;
   font-size:11px;
   padding:2px 6px;
 }
-
+#rightTop{
+  flex:0 0 10%;
+  display:flex;
+  justify-content:flex-end;
+  align-items:center;
+}
 #rightTop img{
   height:48px;
+  width:auto;
 }
-
 #pendingTasksContainer{
   margin:4px 8px;
 }
-
+#pendingTasksTitle{
+  font-size:12px;
+  font-weight:bold;
+  margin-bottom:2px;
+}
 #pendingTasks{
   display:flex;
   flex-wrap:wrap;
   gap:4px;
 }
-
 .pending-item{
   background:#ffe0e0;
   border-left:4px solid #e74c3c;
   padding:2px 4px;
   border-radius:3px;
   font-size:11px;
+  flex:1 1 calc(25% - 4px);
   min-width:120px;
 }
-
 #dashboard{
   display:grid;
   grid-template-columns:1fr 1fr;
   gap:8px;
   padding:8px;
 }
-
 .column{
   display:flex;
   flex-direction:column;
   gap:8px;
 }
-
 .chart-box{
   border-radius:6px;
   padding:4px;
   background:#f0f4c3;
 }
-
 canvas{
   width:100% !important;
 }
@@ -109,19 +115,20 @@ canvas{
 <div id="topContainer">
   <div id="centerTop">
     <h1>Products Journey Monitoring Dashboard</h1>
+    <div id="currentInfo">Currently showing: -</div>
     <div id="controls">
-      <select id="yearFilter"></select>
-      <select id="cropFilter"></select>
+      <select id="yearFilter"><option value="">All Years</option></select>
+      <select id="cropFilter"><option value="">All Crops</option></select>
       <button id="clearBtn">Clear</button>
     </div>
   </div>
   <div id="rightTop">
-    <img src="images/delta-logo.png">
+    <img src="images/delta-logo.png" alt="Delta Insurance Logo">
   </div>
 </div>
 
 <div id="pendingTasksContainer">
-  <div><b>Upcoming (7 Days) Pending Task:</b></div>
+  <div id="pendingTasksTitle">Upcoming (7 Days) Pending Task:</div>
   <div id="pendingTasks"></div>
 </div>
 
@@ -131,200 +138,183 @@ canvas{
 </div>
 
 <script>
-const CSV_URL =
-"https://docs.google.com/spreadsheets/d/1B6Eca5B6RZgGzZqLQYX0MfaxTg3WyjWmnogahhA6iFw/gviz/tq?tqx=out:csv";
-
+const CSV_URL = "https://docs.google.com/spreadsheets/d/1B6Eca5B6RZgGzZqLQYX0MfaxTg3WyjWmnogahhA6iFw/gviz/tq?tqx=out:csv";
 let rawData = [];
 
-const yearFilter = document.getElementById("yearFilter");
 const cropFilter = document.getElementById("cropFilter");
+const yearFilter = document.getElementById("yearFilter");
+const clearBtn = document.getElementById("clearBtn");
+const currentInfo = document.getElementById("currentInfo");
+
+cropFilter.addEventListener("change", applyFilter);
+yearFilter.addEventListener("change", applyFilter);
+clearBtn.addEventListener("click", ()=>{
+  yearFilter.value=""; cropFilter.value="";
+  currentInfo.textContent="Currently showing: -";
+  buildDashboard([]);
+  showPendingTasks([]);
+  populateFilters(rawData);
+});
 
 fetch(CSV_URL)
 .then(r=>r.text())
 .then(csv=>{
   rawData = Papa.parse(csv,{header:true,skipEmptyLines:true}).data;
-  autoPrefilterAndRender();
+  populateFilters(rawData,true);
 });
 
-document.getElementById("clearBtn").onclick = ()=>{
-  yearFilter.innerHTML="";
-  cropFilter.innerHTML="";
-  document.getElementById("leftColumn").innerHTML="";
-  document.getElementById("rightColumn").innerHTML="";
-  document.getElementById("pendingTasks").innerHTML="";
-};
+function populateFilters(data,preselect=false){
+  // populate all years
+  yearFilter.innerHTML='<option value="">All Years</option>';
+  const years=[...new Set(data.map(d=>new Date(d.Task_Start).getFullYear()).filter(Boolean))].sort();
+  years.forEach(y=>{
+    const opt=document.createElement("option");
+    opt.value=y; opt.textContent=y;
+    yearFilter.appendChild(opt);
+  });
 
-yearFilter.onchange = applyFilter;
-cropFilter.onchange = applyFilter;
+  // populate all crops
+  cropFilter.innerHTML='<option value="">All Crops</option>';
+  const crops=[...new Set(data.map(d=>d["Crops Covered"]).filter(Boolean))].sort();
+  crops.forEach(c=>{
+    const opt=document.createElement("option");
+    opt.value=c; opt.textContent=c;
+    cropFilter.appendChild(opt);
+  });
 
-/* ---------- AUTO PREFILTER ---------- */
-
-function autoPrefilterAndRender(){
-  const valid = rawData.filter(d=>d.Task_Start && d["Crops Covered"]);
-  if(!valid.length) return;
-
-  const latestYear = Math.max(...valid.map(
-    d=>new Date(d.Task_Start).getFullYear()
-  ));
-
-  yearFilter.innerHTML=`<option value="${latestYear}">${latestYear}</option>`;
-
-  const yearRows = valid.filter(
-    d=>new Date(d.Task_Start).getFullYear()===latestYear
-  );
-
-  const latestRow = yearRows.sort(
-    (a,b)=>new Date(b.Task_Start)-new Date(a.Task_Start)
-  )[0];
-
-  cropFilter.innerHTML=
-    `<option value="${latestRow["Crops Covered"]}">
-      ${latestRow["Crops Covered"]}
-     </option>`;
-
-  renderDashboard(
-    yearRows.filter(d=>d["Crops Covered"]===latestRow["Crops Covered"])
-  );
+  if(preselect){
+    // preselect current year and first crop alphabetically
+    const currentYear = new Date().getFullYear();
+    const yearExists = years.includes(currentYear)?currentYear:years[years.length-1];
+    yearFilter.value=yearExists;
+    const filteredCrops = data.filter(d=>new Date(d.Task_Start).getFullYear()==yearFilter.value)
+                              .map(d=>d["Crops Covered"]).filter(Boolean).sort();
+    cropFilter.value=filteredCrops[0]||"";
+    applyFilter();
+  }
 }
-
-/* ---------- FILTER APPLY ---------- */
 
 function applyFilter(){
-  if(!yearFilter.value || !cropFilter.value){
-    document.getElementById("leftColumn").innerHTML="";
-    document.getElementById("rightColumn").innerHTML="";
-    return;
-  }
-
-  const filtered = rawData.filter(d =>
-    new Date(d.Task_Start).getFullYear()==yearFilter.value &&
-    d["Crops Covered"]===cropFilter.value
-  );
-
-  renderDashboard(filtered);
+  let filtered = rawData;
+  if(yearFilter.value) filtered=filtered.filter(d=>new Date(d.Task_Start).getFullYear()==yearFilter.value);
+  if(cropFilter.value) filtered=filtered.filter(d=>d["Crops Covered"]===cropFilter.value);
+  currentInfo.textContent=`Currently showing: ${yearFilter.value||"-"}, ${cropFilter.value||"-"}`;
+  buildDashboard(filtered);
+  showPendingTasks(filtered);
 }
-
-/* ---------- DASHBOARD ---------- */
-
-function renderDashboard(data){
-  const left=document.getElementById("leftColumn");
-  const right=document.getElementById("rightColumn");
-  left.innerHTML="";
-  right.innerHTML="";
-  showPendingTasks(data);
-
-  const policy = data.filter(d=>d.Major_Task==="Policy Start to End");
-  const normal = data.filter(d=>d.Major_Task!=="Policy Start to End");
-
-  const grouped={};
-  normal.forEach(r=>{
-    if(!r.Task_Start||!r.Task_End) return;
-    grouped[r.Major_Task]??=[];
-    grouped[r.Major_Task].push(r);
-  });
-
-  Object.entries(grouped).slice(0,3).forEach(([k,v])=>{
-    const box=document.createElement("div");
-    box.className="chart-box";
-    const c=document.createElement("canvas");
-    c.height=200;
-    box.appendChild(c);
-    left.appendChild(box);
-    drawGantt(c,k,v,false);
-  });
-
-  if(policy.length){
-    const box=document.createElement("div");
-    box.className="chart-box";
-    const c=document.createElement("canvas");
-    c.height=600;
-    box.appendChild(c);
-    right.appendChild(box);
-    drawGantt(c,"Policy Start to End",policy,true);
-  }
-}
-
-/* ---------- PENDING ---------- */
 
 function showPendingTasks(data){
-  const el=document.getElementById("pendingTasks");
-  el.innerHTML="";
-  const today=new Date();
-  const next7=new Date(); next7.setDate(today.getDate()+7);
-
-  data.filter(d=>{
-    const e=new Date(d.Task_End);
-    return e>=today && e<=next7 && d.Status!=="Completed";
-  }).forEach(t=>{
+  const container=document.getElementById("pendingTasks");
+  container.innerHTML="";
+  if(!data.length){ container.innerHTML="<div>No pending tasks in next 7 days.</div>"; return; }
+  const today=new Date(), next7=new Date(); next7.setDate(today.getDate()+7);
+  const upcoming=data.filter(d=>{ const end=new Date(d.Task_End); return !isNaN(end)&&end>=today&&end<=next7&&d.Status!=="Completed";});
+  if(!upcoming.length){ container.innerHTML="<div>No pending tasks in next 7 days.</div>"; return; }
+  upcoming.forEach(task=>{
     const div=document.createElement("div");
     div.className="pending-item";
-    div.textContent=
-      `${t.Sub_Task||t.Task} | ${t.Assigned_To||""} | ${t.Task_End}`;
-    el.appendChild(div);
+    div.textContent=`${task.Sub_Task||task.Task} | ${task.Client||""} | Deadline: ${task.Task_End} | ${task.Assigned_To||""}`;
+    container.appendChild(div);
   });
 }
 
-/* ---------- GANTT ---------- */
+function buildDashboard(data){
+  const leftColumn=document.getElementById("leftColumn");
+  const rightColumn=document.getElementById("rightColumn");
+  leftColumn.innerHTML=""; rightColumn.innerHTML="";
+  if(!data.length) return; // keep area blank if no data
 
-function drawGantt(canvas,title,rows,extendRight){
-  const ranges = rows.map(r=>{
-    const s=new Date(r.Task_Start).getTime();
-    let e=new Date(r.Task_End).getTime();
-    if(e<=s) e=s+86400000;
-    return [s,e];
+  const policyRows=data.filter(r=>r.Major_Task==="Policy Start to End");
+  const normalRows=data.filter(r=>r.Major_Task!=="Policy Start to End");
+
+  // group by Major Task maintaining original order
+  const grouped={};
+  normalRows.forEach(r=>{ if(!r.Major_Task) return; grouped[r.Major_Task]??=[]; grouped[r.Major_Task].push(r); });
+
+  const pastelColors=["#dcedc8","#fff9c4","#ffe0b2","#f0f4c3","#c8e6c9"];
+  const majorTasks=Object.entries(grouped);
+
+  majorTasks.forEach(([major,rows],i)=>{
+    const box=document.createElement("div"); box.className="chart-box";
+    box.style.background=pastelColors[i%pastelColors.length];
+    const canvas=document.createElement("canvas"); canvas.id="left_"+i; canvas.style.height=(rows.length*40)+"px";
+    box.appendChild(canvas); leftColumn.appendChild(box);
+    drawGantt(canvas.id,major,rows,false);
   });
 
-  let min=Math.min(...ranges.map(r=>r[0]));
-  let max=Math.max(...ranges.map(r=>r[1]));
-  if(extendRight) max+=10*86400000;
+  if(policyRows.length){
+    const box=document.createElement("div"); box.className="chart-box"; box.style.background="#b3e5fc";
+    const canvas=document.createElement("canvas"); canvas.id="policyChart"; canvas.style.height=(policyRows.length*40)+"px";
+    box.appendChild(canvas); rightColumn.appendChild(box);
+    drawGantt(canvas.id,"Policy Start to End",policyRows,true);
+  }
+}
 
-  new Chart(canvas,{
+function drawGantt(id,title,rows,extendRight){
+  const labels=rows.map(r=>r.Task);
+  const ranges=rows.map(r=>{
+    const s=new Date(r.Task_Start).getTime();
+    let e=new Date(r.Task_End).getTime();
+    if(e<=s) e=s+86400000; return [s,e];
+  });
+  const colors=rows.map(r=>r.Status==="Done"?"#2ecc71":"#e74c3c");
+
+  let minDate=Math.min(...ranges.map(r=>r[0]));
+  let maxDate=Math.max(...ranges.map(r=>r[1]));
+  if(extendRight) maxDate+=10*86400000;
+
+  new Chart(document.getElementById(id),{
     type:"bar",
-    data:{
-      labels:rows.map(r=>r.Task),
-      datasets:[{
-        data:ranges,
-        backgroundColor:rows.map(r=>r.Status==="Done"?"#2ecc71":"#e74c3c"),
-        borderRadius:3
-      }]
-    },
+    data:{labels,datasets:[{data:ranges,backgroundColor:colors,borderRadius:3}]},
     options:{
       indexAxis:"y",
       maintainAspectRatio:false,
       plugins:{
         legend:{display:false},
-        title:{
-          display:true,
-          text:title,
-          color:"blue",
-          font:{family:"Times New Roman",size:12,weight:"bold"}
-        },
-        datalabels:{
-          anchor:"end",
-          align:"right",
-          color:"black",
-          font:{family:"Times New Roman",size:11},
-          formatter:(v,ctx)=>rows[ctx.dataIndex].Sub_Task||""
-        },
+        title:{display:true,text:title,color:"black",font:{size:12,weight:"bold",family:"Times New Roman"}},
         tooltip:{
           callbacks:{
-            label:(ctx)=>{
-              const r=rows[ctx.dataIndex];
+            label:ctx=>{
+              const r=rows[ctx.dataIndex]||{};
               return [
-                `Task: ${r.Task}`,
-                `Assigned: ${r.Assigned_To||""}`,
-                `Start: ${r.Task_Start}`,
-                `End: ${r.Task_End}`,
-                `Status: ${r.Status}`
+                "Task: "+(r.Task||""),
+                "Sub Task: "+(r.Sub_Task||""),
+                "Start: "+(r.Task_Start||""),
+                "End: "+(r.Task_End||""),
+                "Status: "+(r.Status||""),
+                "Assigned: "+(r.Assigned_To||"")
               ];
             }
           }
         }
       },
-      scales:{ x:{type:"time",min,max} }
+      scales:{
+        x:{
+          type:"time",
+          min:minDate,
+          max:maxDate,
+          ticks:{font:{family:"Times New Roman",size:11}, color:"black", maxRotation:0},
+          grid:{color:"#eee"}
+        },
+        y:{
+          ticks:{font:{family:"Times New Roman",size:11}, color:"black"},
+          grid:{display:false}
+        }
+      }
     },
-    plugins:[ChartDataLabels]
+    plugins:[ChartDataLabels],
+    plugins:[ChartDataLabels],
   });
+
+  // datalabels: sub-task only if exists
+  Chart.overrides.bar.plugins.datalabels = {
+    display:ctx=>!!rows[ctx.dataIndex]?.Sub_Task,
+    anchor:'end',
+    align:'end',
+    color:'black',
+    font:{family:"Times New Roman",size:10},
+    formatter:ctx=>rows[ctx.dataIndex]?.Sub_Task||''
+  };
 }
 </script>
 
