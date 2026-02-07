@@ -145,12 +145,10 @@ const yearFilter=document.getElementById("yearFilter");
 const cropFilter=document.getElementById("cropFilter");
 const clearBtn=document.getElementById("clearBtn");
 const currentInfo=document.getElementById("currentInfo");
-
 let charts=[];
 
 cropFilter.addEventListener("change",applyFilter);
 yearFilter.addEventListener("change",applyFilter);
-
 clearBtn.addEventListener("click",()=>{
   yearFilter.value=""; cropFilter.value="";
   currentInfo.textContent="Currently showing: -";
@@ -178,12 +176,10 @@ function populateFilters(data,preselect=false){
   crops.forEach(c=>{const opt=document.createElement("option"); opt.value=c; opt.textContent=c; cropFilter.appendChild(opt);});
 
   if(preselect){
-    // preselect current year
     const currentYear=new Date().getFullYear();
     const yearExists=years.includes(currentYear)?currentYear:years[years.length-1];
     yearFilter.value=yearExists;
 
-    // filter crops for selected year
     const filteredCrops=data.filter(d=>new Date(d.Task_Start).getFullYear()==yearFilter.value)
                             .map(d=>d["Crops Covered"]).filter(Boolean).sort();
     cropFilter.value=filteredCrops[0]||"";
@@ -232,30 +228,31 @@ function buildDashboard(data){
   const rightColumn=document.getElementById("rightColumn");
   leftColumn.innerHTML=""; rightColumn.innerHTML="";
   if(charts.length){ charts.forEach(c=>c.destroy()); charts=[]; }
-
   if(!data.length) return;
 
   const policyRows=data.filter(r=>r.Major_Task==="Policy Start to End");
   const normalRows=data.filter(r=>r.Major_Task!=="Policy Start to End");
 
-  // group by Major Task in original order
   const grouped={};
   normalRows.forEach(r=>{ if(!r.Major_Task) return; grouped[r.Major_Task]??=[]; grouped[r.Major_Task].push(r); });
 
   const pastelColors=["#dcedc8","#fff9c4","#ffe0b2","#f0f4c3","#c8e6c9"];
   const majorTasks=Object.entries(grouped);
 
+  let totalHeight=0;
   majorTasks.forEach(([major,rows],i)=>{
     const box=document.createElement("div"); box.className="chart-box";
     box.style.background=pastelColors[i%pastelColors.length];
     const canvas=document.createElement("canvas"); canvas.id="left_"+i; canvas.style.height=(rows.length*40)+"px";
     box.appendChild(canvas); leftColumn.appendChild(box);
     charts.push(drawGantt(canvas.id,major,rows,false));
+    totalHeight+=rows.length*40;
   });
 
   if(policyRows.length){
     const box=document.createElement("div"); box.className="chart-box"; box.style.background="#b3e5fc";
-    const canvas=document.createElement("canvas"); canvas.id="policyChart"; canvas.style.height=(policyRows.length*40)+"px";
+    const canvas=document.createElement("canvas"); canvas.id="policyChart"; 
+    canvas.style.height=totalHeight+"px";
     box.appendChild(canvas); rightColumn.appendChild(box);
     charts.push(drawGantt(canvas.id,"Policy Start to End",policyRows,true));
   }
@@ -265,7 +262,6 @@ function drawGantt(id,title,rows,extendRight){
   const labels=rows.map(r=>r.Task);
   const ranges=rows.map(r=>{ const s=new Date(r.Task_Start).getTime(); let e=new Date(r.Task_End).getTime(); if(e<=s) e=s+86400000; return [s,e];});
   const colors=rows.map(r=>r.Status==="Done"?"#2ecc71":"#e74c3c");
-
   let minDate=Math.min(...ranges.map(r=>r[0]));
   let maxDate=Math.max(...ranges.map(r=>r[1]));
   if(extendRight) maxDate+=10*86400000;
@@ -283,7 +279,15 @@ function drawGantt(id,title,rows,extendRight){
           callbacks:{
             label:ctx=>{
               const r=rows[ctx.dataIndex]||{};
-              return r.Sub_Task? r.Sub_Task : r.Task;
+              return [
+                `Task: ${r.Task||""}`,
+                `Sub-task: ${r.Sub_Task||""}`,
+                `Assigned: ${r.Assigned_To||""}`,
+                `Start: ${r.Task_Start||""}`,
+                `End: ${r.Task_End||""}`,
+                `Deadline: ${r.Deadline||""}`,
+                `Status: ${r.Status||""}`
+              ];
             }
           }
         },
