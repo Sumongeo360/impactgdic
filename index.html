@@ -17,25 +17,31 @@ body {
 
 header {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 2fr 1fr;
   align-items: center;
   padding: 12px 20px;
   border-bottom: 1px solid #ccc;
 }
 
 header h2 {
-  text-align: center;
   margin: 0;
+  text-align: center;
+}
+
+#prefilterInfo {
+  text-align: center;
+  font-size: 14px;
+  margin-top: 4px;
 }
 
 .filters {
-  text-align: center;
+  text-align: right;
 }
 
 select {
   font-family: "Times New Roman";
   padding: 6px 10px;
-  margin: 0 6px;
+  margin-left: 6px;
 }
 
 .dashboard {
@@ -43,7 +49,7 @@ select {
 }
 
 canvas {
-  margin-bottom: 25px;
+  margin-bottom: 30px;
 }
 </style>
 </head>
@@ -53,7 +59,10 @@ canvas {
 <header>
   <div></div>
 
-  <h2>Project Task Dashboard</h2>
+  <div>
+    <h2>Project Task Dashboard</h2>
+    <div id="prefilterInfo"></div>
+  </div>
 
   <div class="filters">
     <select id="yearFilter">
@@ -76,14 +85,14 @@ const SHEET_URL = "PASTE_YOUR_GOOGLE_SHEET_CSV_URL_HERE";
 let rawData = [];
 let chartLeft, chartRight;
 
-/* ---------- DATA LOAD ---------- */
+/* ---------- LOAD DATA ---------- */
 Papa.parse(SHEET_URL, {
   download: true,
   header: true,
   complete: res => {
-    rawData = res.data.filter(r => r.Task);
+    rawData = res.data.filter(d => d.Task);
     initFilters();
-    autoPreFilterAndRender();
+    autoPreFilter();
   }
 });
 
@@ -93,10 +102,10 @@ function initFilters() {
   const yearSel = document.getElementById("yearFilter");
 
   years.forEach(y => {
-    const opt = document.createElement("option");
-    opt.value = y;
-    opt.textContent = y;
-    yearSel.appendChild(opt);
+    const o = document.createElement("option");
+    o.value = y;
+    o.textContent = y;
+    yearSel.appendChild(o);
   });
 
   yearSel.onchange = () => {
@@ -104,55 +113,56 @@ function initFilters() {
     renderIfValid();
   };
 
-  document.getElementById("productFilter").onchange = renderIfValid;
+  productFilter.onchange = renderIfValid;
 }
 
 function updateProductFilter() {
-  const year = yearFilter.value;
-  const productSel = productFilter;
-  productSel.innerHTML = '<option value="">Select Product</option>';
+  productFilter.innerHTML = `<option value="">Select Product</option>`;
+  if (!yearFilter.value) return;
 
-  if (!year) return;
-
-  const products = [...new Set(
-    rawData.filter(d => d.Year === year).map(d => d.Product)
-  )];
-
-  products.forEach(p => {
-    const opt = document.createElement("option");
-    opt.value = p;
-    opt.textContent = p;
-    productSel.appendChild(opt);
+  [...new Set(
+    rawData
+      .filter(d => d.Year == yearFilter.value)
+      .map(d => d.Product)
+  )].forEach(p => {
+    const o = document.createElement("option");
+    o.value = p;
+    o.textContent = p;
+    productFilter.appendChild(o);
   });
 }
 
 /* ---------- AUTO PREFILTER ---------- */
-function autoPreFilterAndRender() {
+function autoPreFilter() {
   const latestYear = Math.max(...rawData.map(d => +d.Year));
   yearFilter.value = latestYear;
-
   updateProductFilter();
 
-  const rows = rawData.filter(d => d.Year == latestYear);
-  const latestProduct = rows.sort(
-    (a,b) => new Date(b.Start) - new Date(a.Start)
-  )[0].Product;
+  const latestRow = rawData
+    .filter(d => d.Year == latestYear)
+    .sort((a, b) => new Date(b.Start) - new Date(a.Start))[0];
 
-  productFilter.value = latestProduct;
+  productFilter.value = latestRow.Product;
 
-  renderDashboard(latestYear, latestProduct);
+  updatePrefilterText(latestYear, latestRow.Product);
+  renderDashboard(latestYear, latestRow.Product);
+}
+
+function updatePrefilterText(year, product) {
+  document.getElementById("prefilterInfo").textContent =
+    `Auto filtered → Year: ${year} | Product: ${product}`;
 }
 
 /* ---------- RENDER CONTROL ---------- */
 function renderIfValid() {
-  const year = yearFilter.value;
-  const product = productFilter.value;
-
-  if (!year || !product) {
+  if (!yearFilter.value || !productFilter.value) {
     destroyCharts();
+    document.getElementById("prefilterInfo").textContent = "";
     return;
   }
-  renderDashboard(year, product);
+
+  updatePrefilterText(yearFilter.value, productFilter.value);
+  renderDashboard(yearFilter.value, productFilter.value);
 }
 
 function destroyCharts() {
@@ -160,28 +170,28 @@ function destroyCharts() {
   if (chartRight) chartRight.destroy();
 }
 
-/* ---------- CHART RENDER ---------- */
+/* ---------- DASHBOARD ---------- */
 function renderDashboard(year, product) {
   destroyCharts();
 
-  const data = rawData.filter(
+  const rows = rawData.filter(
     d => d.Year == year && d.Product == product
   );
+  if (!rows.length) return;
 
-  if (!data.length) return;
-
-  const datasets = data.map(d => ({
-    label: d.SubTask,
+  const datasets = rows.map(d => ({
+    label: d.SubTask || "",
     data: [{
       x: [new Date(d.Start), new Date(d.End)],
       y: d.Task
     }],
-    backgroundColor: d.Status === "Done" ? "#6cc070" : "#e57373"
+    backgroundColor: d.Status === "Done" ? "#6fbf73" : "#e57373"
   }));
 
-  const commonOptions = extraRightPadding => ({
+  const baseOptions = extraRightMs => ({
     indexAxis: "y",
     plugins: {
+      legend: { display: false },
       datalabels: {
         anchor: "end",
         align: "right",
@@ -190,12 +200,15 @@ function renderDashboard(year, product) {
           family: "Times New Roman",
           size: 12
         },
-        formatter: ctx => ctx.dataset.label
+        formatter: (_, ctx) => {
+          const label = ctx.dataset.label;
+          return label ? label : "";
+        }
       },
       tooltip: {
         callbacks: {
           label: ctx => {
-            const d = data[ctx.dataIndex];
+            const d = rows[ctx.dataIndex];
             return [
               `Task: ${d.Task}`,
               `Assigned: ${d.Assigned}`,
@@ -206,16 +219,14 @@ function renderDashboard(year, product) {
             ];
           }
         }
-      },
-      legend: { display: false }
+      }
     },
     scales: {
       x: {
         type: "time",
-        min: Math.min(...data.map(d => new Date(d.Start))),
+        min: Math.min(...rows.map(r => new Date(r.Start))),
         max: new Date(
-          Math.max(...data.map(d => new Date(d.End))) +
-          extraRightPadding
+          Math.max(...rows.map(r => new Date(r.End))) + extraRightMs
         )
       },
       y: {
@@ -224,25 +235,15 @@ function renderDashboard(year, product) {
     }
   });
 
-  chartLeft = new Chart(chartLeftCtx(), {
-    type: "bar",
-    data: { datasets },
-    options: commonOptions(0)
-  });
+  chartLeft = new Chart(
+    document.getElementById("chartLeft"),
+    { type: "bar", data: { datasets }, options: baseOptions(0) }
+  );
 
-  chartRight = new Chart(chartRightCtx(), {
-    type: "bar",
-    data: { datasets },
-    options: commonOptions(1000 * 60 * 60 * 24 * 10) // +10 days
-  });
-}
-
-/* ---------- CTX HELPERS ---------- */
-function chartLeftCtx() {
-  return document.getElementById("chartLeft").getContext("2d");
-}
-function chartRightCtx() {
-  return document.getElementById("chartRight").getContext("2d");
+  chartRight = new Chart(
+    document.getElementById("chartRight"),
+    { type: "bar", data: { datasets }, options: baseOptions(864000000) } // +10 days
+  );
 }
 </script>
 
