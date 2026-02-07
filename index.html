@@ -140,7 +140,6 @@ canvas{
 <script>
 const CSV_URL = "https://docs.google.com/spreadsheets/d/1B6Eca5B6RZgGzZqLQYX0MfaxTg3WyjWmnogahhA6iFw/gviz/tq?tqx=out:csv";
 let rawData=[];
-
 const yearFilter=document.getElementById("yearFilter");
 const cropFilter=document.getElementById("cropFilter");
 const clearBtn=document.getElementById("clearBtn");
@@ -165,12 +164,10 @@ fetch(CSV_URL)
 });
 
 function populateFilters(data,preselect=false){
-  // all years
   yearFilter.innerHTML='<option value="">All Years</option>';
   const years=[...new Set(data.map(d=>new Date(d.Task_Start).getFullYear()).filter(Boolean))].sort();
   years.forEach(y=>{const opt=document.createElement("option"); opt.value=y; opt.textContent=y; yearFilter.appendChild(opt);});
 
-  // all crops
   cropFilter.innerHTML='<option value="">All Crops</option>';
   const crops=[...new Set(data.map(d=>d["Crops Covered"]).filter(Boolean))].sort();
   crops.forEach(c=>{const opt=document.createElement("option"); opt.value=c; opt.textContent=c; cropFilter.appendChild(opt);});
@@ -192,7 +189,6 @@ function applyFilter(){
 
   if(yearFilter.value){
     filtered=filtered.filter(d=>new Date(d.Task_Start).getFullYear()==yearFilter.value);
-    // update crops based on year
     const filteredCrops=[...new Set(filtered.map(d=>d["Crops Covered"]).filter(Boolean))].sort();
     cropFilter.innerHTML='<option value="">All Crops</option>';
     filteredCrops.forEach(c=>{const opt=document.createElement("option"); opt.value=c; opt.textContent=c; cropFilter.appendChild(opt);});
@@ -243,10 +239,11 @@ function buildDashboard(data){
   majorTasks.forEach(([major,rows],i)=>{
     const box=document.createElement("div"); box.className="chart-box";
     box.style.background=pastelColors[i%pastelColors.length];
-    const canvas=document.createElement("canvas"); canvas.id="left_"+i; canvas.style.height=(rows.length*40)+"px";
+    const canvas=document.createElement("canvas"); canvas.id="left_"+i; 
+    canvas.style.height=(rows.length*50)+"px"; // standard spacing for visualization
     box.appendChild(canvas); leftColumn.appendChild(box);
     charts.push(drawGantt(canvas.id,major,rows,false));
-    totalHeight+=rows.length*40;
+    totalHeight+=rows.length*50;
   });
 
   if(policyRows.length){
@@ -292,10 +289,10 @@ function drawGantt(id,title,rows,extendRight){
           }
         },
         datalabels:{
-          display:ctx=>!!rows[ctx.dataIndex]?.Sub_Task,
+          display:true,
           anchor:'end',
           align:'end',
-          color:'black',
+          color:'blue',
           font:{family:"Times New Roman",size:10},
           formatter:ctx=>rows[ctx.dataIndex]?.Sub_Task||''
         }
@@ -310,7 +307,8 @@ function drawGantt(id,title,rows,extendRight){
         },
         y:{
           ticks:{font:{family:"Times New Roman",size:11}, color:"black"},
-          grid:{display:false}
+          grid:{display:false},
+          stacked:true
         }
       }
     },
