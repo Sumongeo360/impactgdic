@@ -281,7 +281,7 @@ function drawGantt(id,title,rows,extendRight){
         legend:{display:false},
         title:{display:true,text:title,font:{size:12,weight:"bold",family:"Times New Roman"},color:"black"},
         tooltip:{
-          callbacks:{label:ctx=>{const r=rows[ctx.dataIndex]||{}; return [`Task: ${r.Task||""}`,`Sub Task: ${r.Sub_Task||""}`,`Assigned: ${r.Assigned_To||""}`,`Start: ${r.Task_Start||""}`,`End: ${r.Task_End||""}`,`Deadline: ${r.Deadline||""}`,`Status: ${r.Status||""}`];}}
+          callbacks:{label:ctx=>{const r=rows[ctx.dataIndex]||{}; return [`Task: ${r.Task||""}`,`Sub Task: ${r.Sub_Task||""}`,`Assigned: ${r.Assigned_To||""}`,`Start: ${r.Task_Start||""}`,`End: ${r.Task_End||""}`,`Task_Deadline: ${r.Deadline||""}`,`Status: ${r.Status||""}`];}}
         },
         datalabels:{
           display:true,
@@ -304,3 +304,4 @@ function drawGantt(id,title,rows,extendRight){
 
 </body>
 </html>
+
