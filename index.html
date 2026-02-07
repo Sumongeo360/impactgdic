@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Task Gantt Dashboard</title>
+<title>Products Journey Monitoring Dashboard</title>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
@@ -10,240 +10,307 @@
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
 <style>
-body {
-  margin: 0;
-  font-family: "Times New Roman";
+html, body{
+  margin:0; padding:0;
+  font-family:"Times New Roman", serif;
+  background:#f2f2f2;
+  height:100%;
+  overflow-y:auto;
 }
 
-header {
-  display: grid;
-  grid-template-columns: 1fr 2fr 1fr;
-  align-items: center;
-  padding: 12px 20px;
-  border-bottom: 1px solid #ccc;
+#topContainer{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:6px 8px;
+  background:#fff;
+  min-height:70px;
+  position:relative;
 }
 
-header h2 {
-  margin: 0;
-  text-align: center;
+#centerTop{
+  position:absolute;
+  left:50%;
+  transform:translateX(-50%);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:4px;
 }
 
-#prefilterInfo {
-  text-align: center;
-  font-size: 14px;
-  margin-top: 4px;
+#centerTop h1{
+  font-size:18px;
+  font-weight:bold;
+  color:red;
+  margin:0;
 }
 
-.filters {
-  text-align: right;
+#controls{
+  display:flex;
+  gap:6px;
 }
 
-select {
-  font-family: "Times New Roman";
-  padding: 6px 10px;
-  margin-left: 6px;
+select, button{
+  font-family:"Times New Roman", serif;
+  font-size:11px;
+  padding:2px 6px;
 }
 
-.dashboard {
-  padding: 15px;
+#rightTop{
+  flex:0 0 10%;
+  display:flex;
+  justify-content:flex-end;
+  align-items:center;
 }
 
-canvas {
-  margin-bottom: 30px;
+#rightTop img{
+  height:48px;
+}
+
+#pendingTasksContainer{
+  margin:4px 8px;
+}
+
+#dashboard{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  padding:8px;
+}
+
+.column{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
+.chart-box{
+  border-radius:6px;
+  padding:4px;
+  background:#f0f4c3;
+}
+
+canvas{
+  width:100% !important;
 }
 </style>
 </head>
 
 <body>
 
-<header>
-  <div></div>
-
-  <div>
-    <h2>Project Task Dashboard</h2>
-    <div id="prefilterInfo"></div>
+<div id="topContainer">
+  <div id="centerTop">
+    <h1>Products Journey Monitoring Dashboard</h1>
+    <div id="controls">
+      <select id="yearFilter"><option value="">All Years</option></select>
+      <select id="cropFilter"><option value="">All Crops</option></select>
+      <button id="clearBtn">Clear</button>
+    </div>
   </div>
-
-  <div class="filters">
-    <select id="yearFilter">
-      <option value="">Select Year</option>
-    </select>
-    <select id="productFilter">
-      <option value="">Select Product</option>
-    </select>
+  <div id="rightTop">
+    <img src="images/delta-logo.png">
   </div>
-</header>
+</div>
 
-<div class="dashboard">
-  <canvas id="chartLeft"></canvas>
-  <canvas id="chartRight"></canvas>
+<div id="pendingTasksContainer">
+  <div id="pendingTasks"></div>
+</div>
+
+<div id="dashboard">
+  <div id="leftColumn" class="column"></div>
+  <div id="rightColumn" class="column"></div>
 </div>
 
 <script>
-const SHEET_URL = "PASTE_YOUR_GOOGLE_SHEET_CSV_URL_HERE";
-
+const CSV_URL = "https://docs.google.com/spreadsheets/d/1B6Eca5B6RZgGzZqLQYX0MfaxTg3WyjWmnogahhA6iFw/gviz/tq?tqx=out:csv";
 let rawData = [];
-let chartLeft, chartRight;
 
-/* ---------- LOAD DATA ---------- */
-Papa.parse(SHEET_URL, {
-  download: true,
-  header: true,
-  complete: res => {
-    rawData = res.data.filter(d => d.Task);
-    initFilters();
-    autoPreFilter();
-  }
+fetch(CSV_URL)
+.then(r => r.text())
+.then(csv => {
+  rawData = Papa.parse(csv, { header:true, skipEmptyLines:true }).data;
+  populateFilters(rawData);
+  autoPrefilter();
 });
 
-/* ---------- FILTER SETUP ---------- */
-function initFilters() {
-  const years = [...new Set(rawData.map(d => d.Year))].sort();
-  const yearSel = document.getElementById("yearFilter");
+const cropFilter = document.getElementById("cropFilter");
+const yearFilter = document.getElementById("yearFilter");
+const clearBtn   = document.getElementById("clearBtn");
 
-  years.forEach(y => {
-    const o = document.createElement("option");
-    o.value = y;
-    o.textContent = y;
-    yearSel.appendChild(o);
-  });
+cropFilter.onchange = applyFilter;
+yearFilter.onchange = applyFilter;
 
-  yearSel.onchange = () => {
-    updateProductFilter();
-    renderIfValid();
-  };
+clearBtn.onclick = () => {
+  yearFilter.value = "";
+  cropFilter.value = "";
+  document.getElementById("leftColumn").innerHTML = "";
+  document.getElementById("rightColumn").innerHTML = "";
+  document.getElementById("pendingTasks").innerHTML = "";
+};
 
-  productFilter.onchange = renderIfValid;
-}
-
-function updateProductFilter() {
-  productFilter.innerHTML = `<option value="">Select Product</option>`;
-  if (!yearFilter.value) return;
-
+function populateFilters(data){
+  yearFilter.innerHTML = '<option value="">All Years</option>';
   [...new Set(
-    rawData
-      .filter(d => d.Year == yearFilter.value)
-      .map(d => d.Product)
-  )].forEach(p => {
-    const o = document.createElement("option");
-    o.value = p;
-    o.textContent = p;
-    productFilter.appendChild(o);
+    data.map(d => new Date(d.Task_Start).getFullYear()).filter(Boolean)
+  )].sort().forEach(y=>{
+    yearFilter.add(new Option(y,y));
   });
 }
 
-/* ---------- AUTO PREFILTER ---------- */
-function autoPreFilter() {
-  const latestYear = Math.max(...rawData.map(d => +d.Year));
+function updateCropOptions(data){
+  cropFilter.innerHTML = '<option value="">All Crops</option>';
+  [...new Set(data.map(d=>d["Crops Covered"]).filter(Boolean))]
+    .sort().forEach(c=>{
+      cropFilter.add(new Option(c,c));
+    });
+}
+
+/* -------- AUTO PREFILTER -------- */
+function autoPrefilter(){
+  const latestYear = Math.max(...rawData.map(
+    d => new Date(d.Task_Start).getFullYear()
+  ));
+
   yearFilter.value = latestYear;
-  updateProductFilter();
+  const yearRows = rawData.filter(
+    d => new Date(d.Task_Start).getFullYear() == latestYear
+  );
 
-  const latestRow = rawData
-    .filter(d => d.Year == latestYear)
-    .sort((a, b) => new Date(b.Start) - new Date(a.Start))[0];
+  updateCropOptions(yearRows);
 
-  productFilter.value = latestRow.Product;
+  const latestCropRow = yearRows.sort(
+    (a,b)=> new Date(b.Task_Start)-new Date(a.Task_Start)
+  )[0];
 
-  updatePrefilterText(latestYear, latestRow.Product);
-  renderDashboard(latestYear, latestRow.Product);
+  cropFilter.value = latestCropRow["Crops Covered"];
+
+  applyFilter();
 }
 
-function updatePrefilterText(year, product) {
-  document.getElementById("prefilterInfo").textContent =
-    `Auto filtered → Year: ${year} | Product: ${product}`;
-}
-
-/* ---------- RENDER CONTROL ---------- */
-function renderIfValid() {
-  if (!yearFilter.value || !productFilter.value) {
-    destroyCharts();
-    document.getElementById("prefilterInfo").textContent = "";
+function applyFilter(){
+  if(!yearFilter.value || !cropFilter.value){
+    document.getElementById("leftColumn").innerHTML = "";
+    document.getElementById("rightColumn").innerHTML = "";
+    document.getElementById("pendingTasks").innerHTML = "";
     return;
   }
 
-  updatePrefilterText(yearFilter.value, productFilter.value);
-  renderDashboard(yearFilter.value, productFilter.value);
-}
-
-function destroyCharts() {
-  if (chartLeft) chartLeft.destroy();
-  if (chartRight) chartRight.destroy();
-}
-
-/* ---------- DASHBOARD ---------- */
-function renderDashboard(year, product) {
-  destroyCharts();
-
-  const rows = rawData.filter(
-    d => d.Year == year && d.Product == product
+  let filtered = rawData.filter(d =>
+    new Date(d.Task_Start).getFullYear() == yearFilter.value &&
+    d["Crops Covered"] === cropFilter.value
   );
-  if (!rows.length) return;
 
-  const datasets = rows.map(d => ({
-    label: d.SubTask || "",
-    data: [{
-      x: [new Date(d.Start), new Date(d.End)],
-      y: d.Task
-    }],
-    backgroundColor: d.Status === "Done" ? "#6fbf73" : "#e57373"
-  }));
+  buildDashboard(filtered);
+  showPendingTasks(filtered);
+}
 
-  const baseOptions = extraRightMs => ({
-    indexAxis: "y",
-    plugins: {
-      legend: { display: false },
-      datalabels: {
-        anchor: "end",
-        align: "right",
-        color: "black",
-        font: {
-          family: "Times New Roman",
-          size: 12
-        },
-        formatter: (_, ctx) => {
-          const label = ctx.dataset.label;
-          return label ? label : "";
-        }
-      },
-      tooltip: {
-        callbacks: {
-          label: ctx => {
-            const d = rows[ctx.dataIndex];
-            return [
-              `Task: ${d.Task}`,
-              `Assigned: ${d.Assigned}`,
-              `Start: ${d.Start}`,
-              `End: ${d.End}`,
-              `Deadline: ${d.Deadline}`,
-              `Status: ${d.Status}`
-            ];
-          }
-        }
-      }
-    },
-    scales: {
-      x: {
-        type: "time",
-        min: Math.min(...rows.map(r => new Date(r.Start))),
-        max: new Date(
-          Math.max(...rows.map(r => new Date(r.End))) + extraRightMs
-        )
-      },
-      y: {
-        stacked: true
-      }
-    }
+function showPendingTasks(data){
+  const container = document.getElementById("pendingTasks");
+  container.innerHTML = "";
+  const today = new Date();
+  const next7 = new Date(today.getTime() + 7*86400000);
+
+  data.filter(d=>{
+    const e = new Date(d.Task_End);
+    return e>=today && e<=next7 && d.Status!=="Completed";
+  }).forEach(t=>{
+    const div=document.createElement("div");
+    div.textContent =
+      `${t.Sub_Task || t.Task} | Deadline: ${t.Task_End}`;
+    container.appendChild(div);
+  });
+}
+
+function buildDashboard(data){
+  const left = document.getElementById("leftColumn");
+  const right = document.getElementById("rightColumn");
+  left.innerHTML = "";
+  right.innerHTML = "";
+
+  const policy = data.filter(d=>d.Major_Task==="Policy Start to End");
+  const normal = data.filter(d=>d.Major_Task!=="Policy Start to End");
+
+  const grouped={};
+  normal.forEach(r=>{
+    grouped[r.Major_Task] ??= [];
+    grouped[r.Major_Task].push(r);
   });
 
-  chartLeft = new Chart(
-    document.getElementById("chartLeft"),
-    { type: "bar", data: { datasets }, options: baseOptions(0) }
-  );
+  Object.entries(grouped).slice(0,3).forEach(([k,v],i)=>{
+    const c=document.createElement("canvas");
+    c.height=200;
+    left.appendChild(c);
+    drawGantt(c,k,v,false);
+  });
 
-  chartRight = new Chart(
-    document.getElementById("chartRight"),
-    { type: "bar", data: { datasets }, options: baseOptions(864000000) } // +10 days
-  );
+  if(policy.length){
+    const c=document.createElement("canvas");
+    c.height=600;
+    right.appendChild(c);
+    drawGantt(c,"Policy Start to End",policy,true);
+  }
+}
+
+function drawGantt(canvas,title,rows,extendRight){
+  const labels = rows.map(r=>r.Task);
+  const data = rows.map(r=>{
+    const s=new Date(r.Task_Start).getTime();
+    let e=new Date(r.Task_End).getTime();
+    if(e<=s) e=s+86400000;
+    return [s,e];
+  });
+
+  let max=Math.max(...data.map(d=>d[1]));
+  if(extendRight) max+=10*86400000;
+
+  new Chart(canvas,{
+    type:"bar",
+    data:{labels,datasets:[{
+      data,
+      backgroundColor:rows.map(r=>r.Status==="Done"?"#2ecc71":"#e74c3c")
+    }]},
+    options:{
+      indexAxis:"y",
+      plugins:{
+        legend:{display:false},
+        title:{
+          display:true,
+          text:title,
+          color:"blue",
+          font:{family:"Times New Roman",size:12}
+        },
+        datalabels:{
+          anchor:"end",
+          align:"right",
+          color:"black",
+          font:{family:"Times New Roman",size:11},
+          formatter:(v,ctx)=>{
+            const st = rows[ctx.dataIndex].Sub_Task;
+            return st ? st : "";
+          }
+        },
+        tooltip:{
+          callbacks:{
+            label:(ctx)=>{
+              const r=rows[ctx.dataIndex];
+              return [
+                `Task: ${r.Task}`,
+                `Assigned: ${r.Assigned_To||""}`,
+                `Start: ${r.Task_Start}`,
+                `End: ${r.Task_End}`,
+                `Status: ${r.Status}`
+              ];
+            }
+          }
+        }
+      },
+      scales:{
+        x:{type:"time",max},
+        y:{ticks:{font:{family:"Times New Roman",size:9}}}
+      }
+    },
+    plugins:[ChartDataLabels]
+  });
 }
 </script>
 
